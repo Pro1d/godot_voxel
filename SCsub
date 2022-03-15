@@ -33,6 +33,7 @@ voxel_files = [
 	"generators/*.cpp",
 	"generators/graph/*.cpp",
 	"generators/simple/*.cpp",
+	"generators/island/*.cpp",
 
 	"util/*.cpp",
 	"util/godot/*.cpp",

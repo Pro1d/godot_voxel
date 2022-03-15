@@ -2,6 +2,7 @@
 #define VOXEL_TOOL_LOD_TERRAIN_H
 
 #include "voxel_tool.h"
+#include "../storage/voxel_buffer_internal.h"
 
 class VoxelLodTerrain;
 class VoxelDataMap;
@@ -39,6 +40,8 @@ private:
 
 	VoxelLodTerrain *_terrain = nullptr;
 	int _raycast_binary_search_iterations = 0;
+
+  VoxelBufferInternal _voxels_buffer;
 };
 
 #endif // VOXEL_TOOL_LOD_TERRAIN_H

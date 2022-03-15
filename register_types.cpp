@@ -3,6 +3,7 @@
 #include "edition/voxel_tool_buffer.h"
 #include "edition/voxel_tool_lod_terrain.h"
 #include "edition/voxel_tool_terrain.h"
+#include "generators/island/voxel_generator_island.h"
 #include "generators/graph/voxel_generator_graph.h"
 #include "generators/graph/voxel_graph_node_db.h"
 #include "generators/simple/voxel_generator_flat.h"
@@ -105,6 +106,7 @@ void register_voxel_types() {
 	ClassDB::register_class<VoxelGeneratorNoise>();
 	ClassDB::register_class<VoxelGeneratorGraph>();
 	ClassDB::register_class<VoxelGeneratorScript>();
+	ClassDB::register_class<VoxelGeneratorIsland>();
 
 	// Utilities
 	ClassDB::register_class<VoxelBoxMover>();

@@ -33,7 +33,7 @@ public:
 		MAX_CHANNELS
 	};
 
-	static const int ALL_CHANNELS_MASK = 0xff;
+	static const int ALL_CHANNELS_MASK = (1 << MAX_CHANNELS) - 1;
 
 	enum Compression {
 		COMPRESSION_NONE = 0,

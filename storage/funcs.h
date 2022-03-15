@@ -106,11 +106,11 @@ inline float u16_to_norm(uint16_t v) {
 }
 
 inline uint8_t norm_to_u8(float v) {
-	return clamp(static_cast<int>(128.f * v + 128.f), 0, 0xff);
+	return clamp(std::lround(127.f * v + 127.f), 0l, 0xfel);
 }
 
 inline uint16_t norm_to_u16(float v) {
-	return clamp(static_cast<int>(0x8000 * v + 0x8000), 0, 0xffff);
+	return clamp(std::lround(0x7fff * v + 0x7fff), 0l, 0xfffel);
 }
 
 /*static inline float quantized_u8_to_real(uint8_t v) {

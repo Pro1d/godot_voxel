@@ -116,6 +116,21 @@ public:
 
 	bool is_area_fully_loaded(const Box3i voxels_box) const;
 
+  template <typename F>
+  void read_box(const Box3i& voxel_box, unsigned int channel, F action) {
+    const Box3i block_box = voxel_box.downscaled(get_block_size());
+    const Vector3i block_size{static_cast<int>(_block_size)};
+    block_box.for_each_cell_zxy([&](Vector3i const& block_pos) {
+      VoxelDataBlock* block = get_block(block_pos);
+      if (block != nullptr) {
+        const Vector3i block_origin = block_to_voxel(block_pos);
+        Box3i local_box(voxel_box.pos - block_origin, voxel_box.size);
+        local_box.clip(Box3i(Vector3i(), block_size));
+        block->get_voxels().read_box(local_box, channel, action, block_origin);
+      }
+    });
+  }
+
 	// D action(Vector3i pos, D value)
 	template <typename F>
 	void write_box(const Box3i &voxel_box, unsigned int channel, F action) {

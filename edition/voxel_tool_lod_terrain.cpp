@@ -40,16 +40,16 @@ float get_sdf_interpolated(const Volume_F &f, Vector3 pos) {
 	return interpolate(s000, s100, s101, s001, s010, s110, s111, s011, fract(pos));
 }
 
-Vector3 get_normal(const Volume_F& f, Vector3 pos) {
-  const float delta = 0.5f;
-  const float xp = f(pos + Vector3(+delta, 0, 0));
-  const float xn = f(pos + Vector3(-delta, 0, 0));
-  const float yp = f(pos + Vector3(0, +delta, 0));
-  const float yn = f(pos + Vector3(0, -delta, 0));
-  const float zp = f(pos + Vector3(0, 0, +delta));
-  const float zn = f(pos + Vector3(0, 0, -delta));
-  return normalised(xp-xn, yp-yn, zp-zn);
-}
+//Vector3 get_normal(const Volume_F& f, Vector3 pos) {
+//	const float delta = 0.5f;
+//	const float xp = f(pos + Vector3(+delta, 0, 0));
+//	const float xn = f(pos + Vector3(-delta, 0, 0));
+//	const float yp = f(pos + Vector3(0, +delta, 0));
+//	const float yn = f(pos + Vector3(0, -delta, 0));
+//	const float zp = f(pos + Vector3(0, 0, +delta));
+//	const float zn = f(pos + Vector3(0, 0, -delta));
+//	return normalised(xp-xn, yp-yn, zp-zn);
+//}
 
 // Binary search can be more accurate than linear regression because the SDF can be inaccurate in the first place.
 // An alternative would be to polygonize a tiny area around the middle-phase hit position.
@@ -173,113 +173,144 @@ Ref<VoxelRaycastResult> VoxelToolLodTerrain::raycast(
 	return res;
 }
 
+struct SphereBrush {
+	Vector3 center;
+	float radius;
+	float operator()(Vector3 const& pos) const { return radius - center.distance_to(pos); }
+};
+
 struct Brush
 {
-  float scale, inv_scale;
 	std::function<float(Vector3i, float)> func;
 	inline uint16_t operator()(Vector3i pos, uint16_t sdf_i) const {
 		return norm_to_u16(func(pos, u16_to_norm(sdf_i)));
 	}
 };
 
+// Voxels in a 3x3x3 cube neighborhood
+static const std::array<Vector3i, 6> side_neighbors{
+	Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+	Vector3i(0, 1, 0), Vector3i(0, -1, 0),
+	Vector3i(0, 0, 1), Vector3i(0, 0, -1),
+};
+enum {XP = 0, XN, YP, YN, ZP, ZN};
+static const std::array<Vector3i, 12> edge_neighbors{
+	Vector3i(1, 1, 0), Vector3i(0, 1, -1), Vector3i(-1, 1, 0),
+	Vector3i(1, -1, 0), Vector3i(0, 1, 1), Vector3i(-1, -1, 0),
+	Vector3i(1, 0, 1), Vector3i(0, -1, -1), Vector3i(-1, 0, 1),
+	Vector3i(1, 0, -1), Vector3i(0, -1, 1), Vector3i(-1, 0, -1),
+};
+static const std::array<Vector3i, 8> corner_neighbors{
+	Vector3i(1, 1, 1), Vector3i(1, -1, 1),
+	Vector3i(1, 1, -1), Vector3i(1, -1, -1),
+	Vector3i(-1, 1, 1), Vector3i(-1, -1, 1),
+	Vector3i(-1, 1, -1), Vector3i(-1, -1, -1),
+};
+
 void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 	VOXEL_PROFILE_SCOPE();
 	ERR_FAIL_COND(_terrain == nullptr);
 
-  const Vector3 r = Vector3(radius, radius, radius);
-  const Vector3i min_inclusive = Vector3i::from_floored(center - r);
-  const Vector3i max_exclusive = Vector3i::from_ceiled(center + r) + Vector3i(1);
-	const Box3i box = Box3i::from_min_max(min_inclusive, max_exclusive);
-	const Box3i padded_box = box.padded(1);
-	if (!is_area_editable(padded_box)) {
+	const Vector3 r = Vector3(radius, radius, radius);
+	const Vector3i min_inclusive = Vector3i::from_floored(center - r);
+	const Vector3i max_exclusive = Vector3i::from_ceiled(center + r) + Vector3i(1);
+	const Box3i box_raw = Box3i::from_min_max(min_inclusive, max_exclusive);
+	const Box3i box_read = box_raw.padded(1).clipped(_terrain->get_voxel_bounds());
+	const Box3i box_edit = box_read.padded(-1);
+	if (!is_area_editable(box_read)) {
 		PRINT_VERBOSE("Area not editable");
 		return;
 	}
+	static constexpr unsigned channel = VoxelBufferInternal::CHANNEL_SDF;
 
-  _voxels_buffer.create(padded_box.size); // TODO avoid realloc and fill by reserving max capacity
-  _terrain->copy(padded_box.pos, _voxels_buffer, 1 << VoxelBufferInternal::CHANNEL_SDF);
-  enum {XP = 0, XN, YP, YN, ZP, ZN};
-  // Voxels in a 3x3x3 cube neighborhood
-  static const std::array<Vector3i, 6> side_neighbors{
-    Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
-    Vector3i(0, 1, 0), Vector3i(0, -1, 0),
-    Vector3i(0, 0, 1), Vector3i(0, 0, -1),
-  };
-  static const std::array<Vector3i, 12> edge_neighbors{
-    Vector3i(1, 1, 0), Vector3i(0, 1, -1), Vector3i(-1, 1, 0),
-    Vector3i(1, -1, 0), Vector3i(0, 1, 1), Vector3i(-1, -1, 0),
-    Vector3i(1, 0, 1), Vector3i(0, -1, -1), Vector3i(-1, 0, 1),
-    Vector3i(1, 0, -1), Vector3i(0, -1, 1), Vector3i(-1, 0, -1),
-  };
-  static const std::array<Vector3i, 8> corner_neighbors{
-    Vector3i(1, 1, 1), Vector3i(1, -1, 1),
-    Vector3i(1, 1, -1), Vector3i(1, -1, -1),
-    Vector3i(-1, 1, 1), Vector3i(-1, -1, 1),
-    Vector3i(-1, 1, -1), Vector3i(-1, -1, -1),
-  };
-  const float inv_sdf_scale = 1.f / _sdf_scale;
+	_voxels_src.resize(box_read.size);
+	_voxels_dst.resize(box_read.size);
+
+	// Copy voxel terrain to src buffer
+	_terrain->get_voxel_data_map_lod0().read_box(
+			box_read, channel, [&](Vector3i const& pos_glob, uint16_t u16_sdf) {
+				const Vector3i pos_read = pos_glob - box_read.pos;
+				_voxels_src[pos_read] = u16_to_norm(u16_sdf);
+			});
+	//_terrain->copy(box_read.pos, _voxels_src, 1 << VoxelBufferInternal::CHANNEL_SDF);
+
+	// Edit with brush
+	const auto edit = [&](auto&& action) {
+		box_read.for_each_cell_zxy([&](Vector3i const& pos_glob) {
+				const Vector3i pos_read = pos_glob - box_read.pos;
+				if (box_edit.contains(pos_glob))
+					_voxels_dst[pos_read] = action(pos_glob, pos_read);
+				else
+					_voxels_dst[pos_read] = _voxels_src[pos_read];
+		});
+	};
+
+	const auto has_opposite_neighbor = [&](float sdf_center, Vector3i const& pos_read) {
+		const bool sign_center = std::signbit(sdf_center);
+		for (Vector3i const& offset : side_neighbors)
+			if (std::signbit(_voxels_dst[pos_read + offset]) != sign_center)
+				return true;
+		return false;
+	};
+
+	// clean voxels after edition
+	const auto normalize_and_write = [&] {
+		_terrain->write_box(box_edit, VoxelBufferInternal::CHANNEL_SDF, [&](Vector3i const& pos_glob, uint16_t) {
+			const Vector3i pos_read = pos_glob - box_read.pos;
+			const float edited_sdf = _voxels_dst[pos_read];
+			if (has_opposite_neighbor(edited_sdf, pos_read))
+				return norm_to_u16(edited_sdf);
+			else
+				return norm_to_u16(edited_sdf > 0 ? 1.f : -1.f);
+		});
+	};
+
+	SphereBrush brush{center, radius};
+	const float speed = 0.2f;
 
 	switch (_mode) {
 		case MODE_ADD: {
-			// TODO Support other depths, format should be accessible from the volume
-			Brush op{_sdf_scale, inv_sdf_scale, [&](Vector3i pos, float sdf) {
-					float dist = pos.to_vec3().distance_to(center);
-					float sphere = clamp((1.f - dist / radius) * 4, 0.f, 1.f) * 0.07f;
-          if (dist > radius)
-            return clamp(sdf, -1.f, 1.f);
-          else
-            return clamp(sdf - sphere, -1.f, 1.f);
-				}};
-			_terrain->write_box(box, VoxelBufferInternal::CHANNEL_SDF, op);
+			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
+					const float weight = clamp(brush(pos.to_vec3()) / brush.radius * 4, 0.f, 1.f);
+					const float sdf = weight * speed;
+					return _voxels_src[pos_read] - sdf;
+				});
+			normalize_and_write();
 		} break;
 
 		case MODE_REMOVE: {
-			Brush op{_sdf_scale, inv_sdf_scale, [&](Vector3i pos, float sdf) {
-					float dist = pos.to_vec3().distance_to(center);
-					float sphere = clamp((1.f - dist / radius) * 4, 0.f, 1.f) * 0.07f;
-					if (dist > radius)
-            return sdf;
-          else
-            return clamp(sdf + sphere, -1.f, 1.f);
-				}};
-			_terrain->write_box(box, VoxelBufferInternal::CHANNEL_SDF, op);
+			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
+					const float weight = clamp(brush(pos.to_vec3()) / brush.radius * 4, 0.f, 1.f);
+					const float sdf = weight * speed;
+					return _voxels_src[pos_read] + sdf;
+				});
+			normalize_and_write();
 		} break;
 
 		case MODE_SET: {
-			Brush op{_sdf_scale, inv_sdf_scale, [&](Vector3i pos, float sdf) {
-					float dist = pos.to_vec3().distance_to(center);
-					float weight = clamp(radius - dist, 0.f, 1.f) * .5f;
-          float neighbors_sum = 0.f;
-          bool opposite_sign = false;
-          bool sdf_sign = std::signbit(sdf);
-          Vector3i offset = pos - padded_box.pos;
-          const auto visit = [&](auto&& N, float w) {
-            for (Vector3i const& n : N) {
-              const uint16_t nv = _voxels_buffer.get_voxel(offset + n, VoxelBufferInternal::CHANNEL_SDF);
-              const float n_sdf = u16_to_norm(nv);
-              neighbors_sum += n_sdf * w;
-              if (std::signbit(n_sdf) != sdf_sign)
-                opposite_sign = true;
-            }
-          };
-          visit(side_neighbors, 2.f);
-          //if (!opposite_sign) return sdf; //weight = 0.f;
-          visit(edge_neighbors, 1.f);
-          visit(corner_neighbors, 0.5f);
-          float mean = (sdf * 0.f + neighbors_sum) / (
-              0.f + 2.f * side_neighbors.size() + 1.f * edge_neighbors.size() + 0.5f * corner_neighbors.size());
-					if (dist > radius)
-            return sdf;
-          else
-            return clamp(
-              sdf * (1 - weight) + mean * weight, -1.f, 1.f);
-				}};
-			_terrain->write_box(box, VoxelBufferInternal::CHANNEL_SDF, op);
+			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
+					const float weight = clamp(brush(pos.to_vec3()) / brush.radius * 6, 0.f, 1.f) * 0.5f;
+					const float sdf = _voxels_src[pos_read];
+					const auto sum = [&](auto&& N) {
+						float s = 0.f;
+						for (Vector3i const& n : N)
+							s += _voxels_src[pos_read + n];
+						return s;
+					};
+					float neighbors_sum = sdf * 0.f;
+					neighbors_sum += sum(side_neighbors) * 2.f;
+					neighbors_sum += sum(edge_neighbors) * 1.f;
+					neighbors_sum += sum(corner_neighbors) * .5f;
+					const float mean = neighbors_sum / (
+							0.f + 2.f * side_neighbors.size() + 1.f * edge_neighbors.size() + 0.5f * corner_neighbors.size());
+					return sdf * (1 - weight) + mean * weight;
+				});
+			normalize_and_write();
 		} break;
 
 		case MODE_TEXTURE_PAINT: {
-			_terrain->write_box_2(box, VoxelBufferInternal::CHANNEL_INDICES, VoxelBufferInternal::CHANNEL_WEIGHTS,
-					TextureBlendSphereOp{ center, radius, _texture_params });
+			//_terrain->write_box_2(box, VoxelBufferInternal::CHANNEL_INDICES, VoxelBufferInternal::CHANNEL_WEIGHTS,
+			//		TextureBlendSphereOp{ center, radius, _texture_params });
 		} break;
 
 		default:

@@ -84,6 +84,7 @@ public:
 	bool try_set_voxel_without_update(Vector3i pos, unsigned int channel, uint64_t value);
 	void copy(Vector3i p_origin_voxels, VoxelBufferInternal &dst_buffer, uint8_t channels_mask) const;
 
+	VoxelDataMap& get_voxel_data_map_lod0() { return _lods[0].data_map; }
 	template <typename F>
 	void write_box(const Box3i &p_voxel_box, unsigned int channel, F action) {
 		const Box3i voxel_box = p_voxel_box.clipped(_bounds_in_voxels);

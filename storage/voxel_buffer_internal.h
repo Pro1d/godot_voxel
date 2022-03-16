@@ -246,6 +246,51 @@ public:
 		}
 	}
 
+	template <typename F, typename Data_T>
+	void read_box_template(const Box3i& box, unsigned channel_index, F&& action_func, const Vector3i& offset) {
+		Channel &channel = _channels[channel_index];
+#ifdef DEBUG_ENABLED
+		ERR_FAIL_COND(!Box3i(Vector3i(), _size).contains(box));
+		ERR_FAIL_COND(get_depth_byte_count(channel.depth) != sizeof(Data_T));
+#endif
+		if (channel.data == nullptr) {
+			for_each_index_and_pos(box, [&](size_t i, Vector3i pos) {
+				action_func(pos + offset, static_cast<Data_T>(channel.defval));
+			});
+		} else {
+			Span<Data_T> data = Span<uint8_t>(channel.data, channel.size_in_bytes)
+										.reinterpret_cast_to<Data_T>();
+			for_each_index_and_pos(box, [&](size_t i, Vector3i pos) {
+				action_func(pos + offset, data[i]);
+			});
+		}
+	}
+
+	template <typename F>
+	void read_box(const Box3i &box, unsigned int channel_index, F&& action_func, Vector3i const& offset) {
+#ifdef DEBUG_ENABLED
+		ERR_FAIL_INDEX(channel_index, MAX_CHANNELS);
+#endif
+		const Channel &channel = _channels[channel_index];
+		switch (channel.depth) {
+			case DEPTH_8_BIT:
+				read_box_template<F, uint8_t>(box, channel_index, std::forward<F>(action_func), offset);
+				break;
+			case DEPTH_16_BIT:
+				read_box_template<F, uint16_t>(box, channel_index, std::forward<F>(action_func), offset);
+				break;
+			case DEPTH_32_BIT:
+				read_box_template<F, uint32_t>(box, channel_index, std::forward<F>(action_func), offset);
+				break;
+			case DEPTH_64_BIT:
+				read_box_template<F, uint64_t>(box, channel_index, std::forward<F>(action_func), offset);
+				break;
+			default:
+				ERR_FAIL();
+				break;
+		}
+	}
+
 	// Data_T action_func(Vector3i pos, Data_T in_v)
 	template <typename F, typename Data_T>
 	void write_box_template(const Box3i &box, unsigned int channel_index, F action_func, Vector3i offset) {

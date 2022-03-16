@@ -41,7 +41,20 @@ private:
 	VoxelLodTerrain *_terrain = nullptr;
 	int _raycast_binary_search_iterations = 0;
 
-  VoxelBufferInternal _voxels_buffer;
+	template <typename T>
+	struct DenseVoxelBuffer {
+		std::unique_ptr<T[]> data_ptr;
+		size_t capacity{};
+		Vector3i size;
+		void resize(Vector3i const& s) {
+			size = s;
+			size_t c = s.volume();
+			if (capacity < c) data_ptr = std::make_unique<T[]>(capacity = c);
+		}
+		T& operator[](Vector3i const& p) { return data_ptr[p.get_zxy_index(size)]; }
+	};
+	DenseVoxelBuffer<float> _voxels_src;
+	DenseVoxelBuffer<float> _voxels_dst;
 };
 
 #endif // VOXEL_TOOL_LOD_TERRAIN_H

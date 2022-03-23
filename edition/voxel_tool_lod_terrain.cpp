@@ -40,8 +40,21 @@ float get_sdf_interpolated(const Volume_F &f, Vector3 pos) {
 	return interpolate(s000, s100, s101, s001, s010, s110, s111, s011, fract(pos));
 }
 
-//Vector3 get_normal(const Volume_F& f, Vector3 pos) {
-//	const float delta = 0.5f;
+//template <typename Volume_F>
+//inline Vector3 get_gradient(const Volume_F& f, Vector3 pos) {
+//	const Vector3i c = Vector3i::from_floored(pos);
+//	const Vector3 weight = fract(pos);
+//
+//	const float s000 = f(Vector3i(c.x, c.y, c.z));
+//	const float s100 = f(Vector3i(c.x + 1, c.y, c.z));
+//	const float s010 = f(Vector3i(c.x, c.y + 1, c.z));
+//	const float s110 = f(Vector3i(c.x + 1, c.y + 1, c.z));
+//	const float s001 = f(Vector3i(c.x, c.y, c.z + 1));
+//	const float s101 = f(Vector3i(c.x + 1, c.y, c.z + 1));
+//	const float s011 = f(Vector3i(c.x, c.y + 1, c.z + 1));
+//	const float s111 = f(Vector3i(c.x + 1, c.y + 1, c.z + 1));
+//	const float delta = 1.0f;
+//
 //	const float xp = f(pos + Vector3(+delta, 0, 0));
 //	const float xn = f(pos + Vector3(-delta, 0, 0));
 //	const float yp = f(pos + Vector3(0, +delta, 0));
@@ -247,6 +260,12 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 
 	const auto has_opposite_neighbor = [&](float sdf_center, Vector3i const& pos_read) {
 		const bool sign_center = std::signbit(sdf_center);
+		for (Vector3i const& offset : corner_neighbors)
+			if (std::signbit(_voxels_dst[pos_read + offset]) != sign_center)
+				return true;
+		for (Vector3i const& offset : edge_neighbors)
+			if (std::signbit(_voxels_dst[pos_read + offset]) != sign_center)
+				return true;
 		for (Vector3i const& offset : side_neighbors)
 			if (std::signbit(_voxels_dst[pos_read + offset]) != sign_center)
 				return true;
@@ -271,8 +290,9 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 	switch (_mode) {
 		case MODE_ADD: {
 			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
-					const float weight = clamp(brush(pos.to_vec3()) / brush.radius * 4, 0.f, 1.f);
-					const float sdf = weight * speed;
+					const float weight = clamp(brush(pos.to_vec3()) / brush.radius, 0.f, 1.f);
+					const float w = 1-weight;
+					const float sdf = (1-w*w) * speed;
 					return _voxels_src[pos_read] - sdf;
 				});
 			normalize_and_write();
@@ -280,8 +300,9 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 
 		case MODE_REMOVE: {
 			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
-					const float weight = clamp(brush(pos.to_vec3()) / brush.radius * 4, 0.f, 1.f);
-					const float sdf = weight * speed;
+					const float weight = clamp(brush(pos.to_vec3()) / brush.radius, 0.f, 1.f);
+					const float w = 1-weight;
+					const float sdf = (1-w*w) * speed;
 					return _voxels_src[pos_read] + sdf;
 				});
 			normalize_and_write();

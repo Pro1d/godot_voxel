@@ -196,19 +196,24 @@ RES_PARAMETER_SET_GET_DEF(OpenSimplexNoise, cliff_noise);
 PARAMETER_SET_GET_DEF(float, cliff_noise_factor);
 
 void VoxelGeneratorIsland::_bind_methods() {
+	ADD_GROUP("Debug", "");
 	PARAMETER_BIND(INT, steps_mask, PROPERTY_HINT_LAYERS_3D_RENDER);
+	ADD_GROUP("Voxel", "");
 	PARAMETER_BIND(REAL, voxel_scale, PROPERTY_HINT_RANGE, "0,128");
 	PARAMETER_BIND(REAL, sea_height, PROPERTY_HINT_RANGE, "0,1024");
+	ADD_GROUP("Island Size", "");
 	PARAMETER_BIND(REAL, max_height, PROPERTY_HINT_RANGE, "0,1024");
 	PARAMETER_BIND(REAL, radius, PROPERTY_HINT_RANGE,	"0,1024");
 	PARAMETER_BIND(REAL, radius_cutoff_power, PROPERTY_HINT_EXP_EASING);
 	PARAMETER_BIND(REAL, radius_cutoff_scale, PROPERTY_HINT_EXP_EASING);
+	ADD_GROUP("Height Map", "");
 	PARAMETER_BIND(REAL, ground_ratio, PROPERTY_HINT_RANGE, "0,1");
 	PARAMETER_BIND(REAL, biome_transition, PROPERTY_HINT_EXP_EASING);
 	RES_PARAMETER_BIND(OpenSimplexNoise, biome_noise);
 	RES_PARAMETER_BIND(OpenSimplexNoise, height_noise);
 	RES_PARAMETER_BIND(Curve, curve_biome0);
 	RES_PARAMETER_BIND(Curve, curve_biome1);
+	ADD_GROUP("Post Processing 3D", "");
 	RES_PARAMETER_BIND(OpenSimplexNoise, cliff_noise);
 	PARAMETER_BIND(REAL, cliff_noise_factor, PROPERTY_HINT_RANGE, "0,1");
 }

@@ -17,6 +17,12 @@ VoxelToolLodTerrain::VoxelToolLodTerrain(VoxelLodTerrain *terrain) :
 	ERR_FAIL_COND(terrain == nullptr);
 	// At the moment, only LOD0 is supported.
 	// Don't destroy the terrain while a voxel tool still references it
+
+	_crease_noise.instance();
+	_crease_noise->set_octaves(1);
+	_crease_noise->set_period(4.0);
+	_edition_speed = 0.2f;
+	_edition_normal = Vector3(0, 1, 0);
 }
 
 bool VoxelToolLodTerrain::is_area_editable(const Box3i &box) const {
@@ -39,30 +45,6 @@ float get_sdf_interpolated(const Volume_F &f, Vector3 pos) {
 
 	return interpolate(s000, s100, s101, s001, s010, s110, s111, s011, fract(pos));
 }
-
-//template <typename Volume_F>
-//inline Vector3 get_gradient(const Volume_F& f, Vector3 pos) {
-//	const Vector3i c = Vector3i::from_floored(pos);
-//	const Vector3 weight = fract(pos);
-//
-//	const float s000 = f(Vector3i(c.x, c.y, c.z));
-//	const float s100 = f(Vector3i(c.x + 1, c.y, c.z));
-//	const float s010 = f(Vector3i(c.x, c.y + 1, c.z));
-//	const float s110 = f(Vector3i(c.x + 1, c.y + 1, c.z));
-//	const float s001 = f(Vector3i(c.x, c.y, c.z + 1));
-//	const float s101 = f(Vector3i(c.x + 1, c.y, c.z + 1));
-//	const float s011 = f(Vector3i(c.x, c.y + 1, c.z + 1));
-//	const float s111 = f(Vector3i(c.x + 1, c.y + 1, c.z + 1));
-//	const float delta = 1.0f;
-//
-//	const float xp = f(pos + Vector3(+delta, 0, 0));
-//	const float xn = f(pos + Vector3(-delta, 0, 0));
-//	const float yp = f(pos + Vector3(0, +delta, 0));
-//	const float yn = f(pos + Vector3(0, -delta, 0));
-//	const float zp = f(pos + Vector3(0, 0, +delta));
-//	const float zn = f(pos + Vector3(0, 0, -delta));
-//	return normalised(xp-xn, yp-yn, zp-zn);
-//}
 
 // Binary search can be more accurate than linear regression because the SDF can be inaccurate in the first place.
 // An alternative would be to polygonize a tiny area around the middle-phase hit position.
@@ -121,7 +103,7 @@ Ref<VoxelRaycastResult> VoxelToolLodTerrain::raycast(
 
 		bool operator()(Vector3i pos) {
 			// This is not particularly optimized, but runs fast enough for player raycasts
-			const uint64_t raw_value = terrain->get_voxel(pos, VoxelBufferInternal::CHANNEL_SDF, 0);
+			const uint64_t raw_value = terrain->get_voxel(pos, VoxelBufferInternal::CHANNEL_SDF, 0xfffe);
 			// TODO Format should be accessible from terrain
 			const float sdf = u16_to_norm(raw_value);
 			return sdf < 0;
@@ -163,7 +145,7 @@ Ref<VoxelRaycastResult> VoxelToolLodTerrain::raycast(
 				const VoxelLodTerrain *terrain;
 
 				inline float operator()(const Vector3i &pos) const {
-					const uint64_t raw_value = terrain->get_voxel(pos, VoxelBufferInternal::CHANNEL_SDF, 0);
+					const uint64_t raw_value = terrain->get_voxel(pos, VoxelBufferInternal::CHANNEL_SDF, 0xfffe);
 					// TODO Format should be accessible from terrain
 					const float sdf = u16_to_norm(raw_value);
 					return sdf;
@@ -180,6 +162,7 @@ Ref<VoxelRaycastResult> VoxelToolLodTerrain::raycast(
 		res.instance();
 		res->position = hit_pos;
 		res->previous_position = prev_pos;
+		res->normal = get_gradient(pos + dir * d);
 		res->distance_along_ray = d;
 	}
 
@@ -189,15 +172,13 @@ Ref<VoxelRaycastResult> VoxelToolLodTerrain::raycast(
 struct SphereBrush {
 	Vector3 center;
 	float radius;
+	//   ^ result
+	// r |,
+	//   |  * ,
+	//   |      * ,
+	//   +----------*-,-----------> dist
+	//               r  * ,
 	float operator()(Vector3 const& pos) const { return radius - center.distance_to(pos); }
-};
-
-struct Brush
-{
-	std::function<float(Vector3i, float)> func;
-	inline uint16_t operator()(Vector3i pos, uint16_t sdf_i) const {
-		return norm_to_u16(func(pos, u16_to_norm(sdf_i)));
-	}
 };
 
 // Voxels in a 3x3x3 cube neighborhood
@@ -259,22 +240,21 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 	};
 
 	const auto has_opposite_neighbor = [&](float sdf_center, Vector3i const& pos_read) {
-		const bool sign_center = std::signbit(sdf_center);
-		for (Vector3i const& offset : corner_neighbors)
-			if (std::signbit(_voxels_dst[pos_read + offset]) != sign_center)
-				return true;
-		for (Vector3i const& offset : edge_neighbors)
-			if (std::signbit(_voxels_dst[pos_read + offset]) != sign_center)
-				return true;
-		for (Vector3i const& offset : side_neighbors)
-			if (std::signbit(_voxels_dst[pos_read + offset]) != sign_center)
-				return true;
+		union FI { float f; uint32_t i; };
+		const bool sign_center = FI{sdf_center}.i >> 31;
+		const Vector3i min = pos_read - Vector3i(1);
+		const Vector3i max = pos_read + Vector3i(1);
+		for (Vector3i p = min; p.z <= max.z; ++p.z)
+			for (p.x = min.x; p.x <= max.x; ++p.x)
+				for (p.y = min.y; p.y <= max.y; ++p.y)
+					if ((FI{_voxels_dst[p]}.i >> 31) != sign_center)
+						return true;
 		return false;
 	};
 
 	// clean voxels after edition
 	const auto normalize_and_write = [&] {
-		_terrain->write_box(box_edit, VoxelBufferInternal::CHANNEL_SDF, [&](Vector3i const& pos_glob, uint16_t) {
+		_terrain->write_box(box_edit, channel, [&](Vector3i const& pos_glob, uint16_t) {
 			const Vector3i pos_read = pos_glob - box_read.pos;
 			const float edited_sdf = _voxels_dst[pos_read];
 			if (has_opposite_neighbor(edited_sdf, pos_read))
@@ -285,14 +265,13 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 	};
 
 	SphereBrush brush{center, radius};
-	const float speed = 0.2f;
 
 	switch (_mode) {
 		case MODE_ADD: {
 			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
 					const float weight = clamp(brush(pos.to_vec3()) / brush.radius, 0.f, 1.f);
-					const float w = 1-weight;
-					const float sdf = (1-w*w) * speed;
+					const float w = weight > 0 ? 1 - (1 - weight) * 0.85f : 0;
+					const float sdf = w * _edition_speed;
 					return _voxels_src[pos_read] - sdf;
 				});
 			normalize_and_write();
@@ -301,16 +280,16 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 		case MODE_REMOVE: {
 			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
 					const float weight = clamp(brush(pos.to_vec3()) / brush.radius, 0.f, 1.f);
-					const float w = 1-weight;
-					const float sdf = (1-w*w) * speed;
+					const float w = weight > 0 ? 1 - (1 - weight) * 0.85f : 0;
+					const float sdf = w * _edition_speed;
 					return _voxels_src[pos_read] + sdf;
 				});
 			normalize_and_write();
 		} break;
 
-		case MODE_SET: {
+		case MODE_SMOOTH: {
 			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
-					const float weight = clamp(brush(pos.to_vec3()) / brush.radius * 6, 0.f, 1.f) * 0.5f;
+					const float weight = smoothstep(0.f, brush.radius * 0.2f, brush(pos.to_vec3())) * _edition_speed;
 					const float sdf = _voxels_src[pos_read];
 					const auto sum = [&](auto&& N) {
 						float s = 0.f;
@@ -318,13 +297,30 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 							s += _voxels_src[pos_read + n];
 						return s;
 					};
-					float neighbors_sum = sdf * 0.f;
-					neighbors_sum += sum(side_neighbors) * 2.f;
-					neighbors_sum += sum(edge_neighbors) * 1.f;
-					neighbors_sum += sum(corner_neighbors) * .5f;
-					const float mean = neighbors_sum / (
-							0.f + 2.f * side_neighbors.size() + 1.f * edge_neighbors.size() + 0.5f * corner_neighbors.size());
+					const float mean = sum(side_neighbors) * (2.f / 28.f) +
+														 sum(edge_neighbors) * (1.f / 28.f) +
+														 sum(corner_neighbors) * (.5f / 28.f);
 					return sdf * (1 - weight) + mean * weight;
+				});
+			normalize_and_write();
+		} break;
+
+		case MODE_CREASE: {
+			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
+					const float weight = smoothstep(0.f, brush.radius * 0.2f, brush(pos.to_vec3())) * _edition_speed;
+					const float sdf = weight * _crease_noise->get_noise_3d(pos.x, pos.y, pos.z) * 0.1f;
+					return _voxels_src[pos_read] + sdf;
+				});
+			normalize_and_write();
+		} break;
+
+		case MODE_PLANE: {
+			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
+					const float weight = smoothstep(0.f, brush.radius * 0.2f, brush(pos.to_vec3()));
+					const float dot = _edition_normal.dot(pos.to_vec3() - brush.center);
+					const float normal_weight = clamp(dot + 1, 0.f, 1.f) * 0.3 * _edition_speed;
+					const float sdf = weight * normal_weight;
+					return _voxels_src[pos_read] + sdf;
 				});
 			normalize_and_write();
 		} break;
@@ -347,6 +343,19 @@ void VoxelToolLodTerrain::copy(Vector3i pos, Ref<VoxelBuffer> dst, uint8_t chann
 		channels_mask = (1 << _channel);
 	}
 	_terrain->copy(pos, dst->get_buffer(), channels_mask);
+}
+
+Vector3 VoxelToolLodTerrain::get_gradient(Vector3 pos) const {
+	const float delta = 1.0f;
+
+	const float xp = get_voxel_f_interpolated(pos + Vector3(+delta, 0, 0));
+	const float xn = get_voxel_f_interpolated(pos + Vector3(-delta, 0, 0));
+	const float yp = get_voxel_f_interpolated(pos + Vector3(0, +delta, 0));
+	const float yn = get_voxel_f_interpolated(pos + Vector3(0, -delta, 0));
+	const float zp = get_voxel_f_interpolated(pos + Vector3(0, 0, +delta));
+	const float zn = get_voxel_f_interpolated(pos + Vector3(0, 0, -delta));
+
+	return Vector3(xp - xn, yp - yn, zp - zn).normalized();
 }
 
 float VoxelToolLodTerrain::get_voxel_f_interpolated(Vector3 position) const {
@@ -737,6 +746,25 @@ Array VoxelToolLodTerrain::separate_floating_chunks(AABB world_box, Node *parent
 			*this, int_world_box, parent_node, _terrain->get_global_transform(), mesher, materials);
 }
 
+float VoxelToolLodTerrain::get_crease_noise_period() const {
+	return _crease_noise->get_period();
+}
+void VoxelToolLodTerrain::set_crease_noise_period(float period) {
+	_crease_noise->set_period(period);
+}
+float VoxelToolLodTerrain::get_edition_speed() const {
+	return _edition_speed;
+}
+void VoxelToolLodTerrain::set_edition_speed(float speed) {
+	_edition_speed = speed;
+}
+Vector3 VoxelToolLodTerrain::get_edition_normal() const {
+	return _edition_normal;
+}
+void VoxelToolLodTerrain::set_edition_normal(Vector3 const& normal) {
+	_edition_normal = normal;
+}
+
 void VoxelToolLodTerrain::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_raycast_binary_search_iterations", "iterations"),
 			&VoxelToolLodTerrain::set_raycast_binary_search_iterations);
@@ -746,4 +774,13 @@ void VoxelToolLodTerrain::_bind_methods() {
 			&VoxelToolLodTerrain::get_voxel_f_interpolated);
 	ClassDB::bind_method(D_METHOD("separate_floating_chunks", "box", "parent_node"),
 			&VoxelToolLodTerrain::separate_floating_chunks);
+	ClassDB::bind_method(D_METHOD("set_crease_noise_period", "period"), &VoxelToolLodTerrain::set_crease_noise_period);
+	ClassDB::bind_method(D_METHOD("get_crease_noise_period"), &VoxelToolLodTerrain::get_crease_noise_period);
+	ADD_PROPERTY(PropertyInfo(Variant::REAL, "crease_noise_period"), "set_crease_noise_period", "get_crease_noise_period");
+	ClassDB::bind_method(D_METHOD("set_edition_speed", "speed"), &VoxelToolLodTerrain::set_edition_speed);
+	ClassDB::bind_method(D_METHOD("get_edition_speed"), &VoxelToolLodTerrain::get_edition_speed);
+	ADD_PROPERTY(PropertyInfo(Variant::REAL, "edition_speed"), "set_edition_speed", "get_edition_speed");
+	ClassDB::bind_method(D_METHOD("set_edition_normal", "normal"), &VoxelToolLodTerrain::set_edition_normal);
+	ClassDB::bind_method(D_METHOD("get_edition_normal"), &VoxelToolLodTerrain::get_edition_normal);
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "edition_normal"), "set_edition_normal", "get_edition_normal");
 }

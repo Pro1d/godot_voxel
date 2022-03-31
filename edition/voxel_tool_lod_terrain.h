@@ -4,6 +4,8 @@
 #include "voxel_tool.h"
 #include "../storage/voxel_buffer_internal.h"
 
+#include <modules/opensimplex/open_simplex_noise.h>
+
 class VoxelLodTerrain;
 class VoxelDataMap;
 
@@ -25,8 +27,17 @@ public:
 
 	// Specialized API
 
+	Vector3 get_gradient(Vector3 pos) const;
 	float get_voxel_f_interpolated(Vector3 position) const;
 	Array separate_floating_chunks(AABB world_box, Node *parent_node);
+
+	float get_crease_noise_period() const;
+	void set_crease_noise_period(float period);
+	float get_edition_speed() const;
+	void set_edition_speed(float speed);
+	Vector3 get_edition_normal() const;
+	void set_edition_normal(Vector3 const& normal);
+
 
 protected:
 	uint64_t _get_voxel(Vector3i pos) const override;
@@ -40,6 +51,9 @@ private:
 
 	VoxelLodTerrain *_terrain = nullptr;
 	int _raycast_binary_search_iterations = 0;
+	Ref<OpenSimplexNoise> _crease_noise;
+	float _edition_speed;
+	Vector3 _edition_normal;
 
 	template <typename T>
 	struct DenseVoxelBuffer {

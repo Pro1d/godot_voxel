@@ -10,11 +10,13 @@ class VoxelRaycastResult : public Reference {
 public:
 	Vector3i position;
 	Vector3i previous_position;
+	Vector3 normal;
 	float distance_along_ray;
 
 private:
 	Vector3 _b_get_position() const;
 	Vector3 _b_get_previous_position() const;
+	Vector3 _b_get_normal() const;
 	float _b_get_distance() const;
 
 	static void _bind_methods();

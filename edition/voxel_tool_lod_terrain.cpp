@@ -325,6 +325,17 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 			normalize_and_write();
 		} break;
 
+		case MODE_LEVEL: {
+			edit([&](Vector3i const& pos, Vector3i const& pos_read) {
+					const float weight = smoothstep(0.f, brush.radius * 0.2f, brush(pos.to_vec3()));
+					const float dot = _edition_normal.dot(pos.to_vec3() - brush.center);
+					const float normal_weight = clamp(dot,-1.f, 0.f) * 0.3 * _edition_speed;
+					const float sdf = weight * normal_weight;
+					return _voxels_src[pos_read] + sdf;
+				});
+			normalize_and_write();
+		} break;
+
 		case MODE_TEXTURE_PAINT: {
 			//_terrain->write_box_2(box, VoxelBufferInternal::CHANNEL_INDICES, VoxelBufferInternal::CHANNEL_WEIGHTS,
 			//		TextureBlendSphereOp{ center, radius, _texture_params });

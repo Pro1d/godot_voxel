@@ -25,6 +25,7 @@ public:
 		MODE_SMOOTH,
 		MODE_CREASE,
 		MODE_PLANE,
+    MODE_LEVEL,
 	};
 
 	VoxelTool();

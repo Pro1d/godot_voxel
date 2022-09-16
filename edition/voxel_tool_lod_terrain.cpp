@@ -337,8 +337,8 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 		} break;
 
 		case MODE_TEXTURE_PAINT: {
-			//_terrain->write_box_2(box, VoxelBufferInternal::CHANNEL_INDICES, VoxelBufferInternal::CHANNEL_WEIGHTS,
-			//		TextureBlendSphereOp{ center, radius, _texture_params });
+			_terrain->write_box_2(box_edit, VoxelBufferInternal::CHANNEL_INDICES, VoxelBufferInternal::CHANNEL_WEIGHTS,
+					TextureBlendSphereOp{ center, radius, _texture_params });
 		} break;
 
 		default:

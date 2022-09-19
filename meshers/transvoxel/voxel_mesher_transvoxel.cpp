@@ -29,7 +29,7 @@ Ref<Resource> VoxelMesherTransvoxel::duplicate(bool p_subresources) const {
 int VoxelMesherTransvoxel::get_used_channels_mask() const {
 	if (_texture_mode == TEXTURES_BLEND_4_OVER_16) {
 		return (1 << VoxelBufferInternal::CHANNEL_SDF) |
-			   (1 << VoxelBufferInternal::CHANNEL_INDICES) |
+			   //(1 << VoxelBufferInternal::CHANNEL_INDICES) |
 			   (1 << VoxelBufferInternal::CHANNEL_WEIGHTS);
 	}
 	return (1 << VoxelBufferInternal::CHANNEL_SDF);
@@ -148,7 +148,7 @@ void VoxelMesherTransvoxel::build(VoxelMesher::Output &output, const VoxelMesher
 
 	// const uint64_t time_before = OS::get_singleton()->get_ticks_usec();
 
-	Transvoxel::DefaultTextureIndicesData default_texture_indices_data = Transvoxel::build_regular_mesh(
+	Transvoxel::build_regular_mesh(
 			voxels, sdf_channel, input.lod, static_cast<Transvoxel::TexturingMode>(_texture_mode), s_cache,
 			s_mesh_arrays);
 
@@ -179,8 +179,7 @@ void VoxelMesherTransvoxel::build(VoxelMesher::Output &output, const VoxelMesher
 		s_mesh_arrays.clear();
 
 		Transvoxel::build_transition_mesh(voxels, sdf_channel, dir, input.lod,
-				static_cast<Transvoxel::TexturingMode>(_texture_mode), s_cache, s_mesh_arrays,
-				default_texture_indices_data);
+				static_cast<Transvoxel::TexturingMode>(_texture_mode), s_cache, s_mesh_arrays);
 
 		if (s_mesh_arrays.vertices.size() == 0) {
 			continue;
@@ -214,11 +213,8 @@ Ref<ArrayMesh> VoxelMesherTransvoxel::build_transition_mesh(Ref<VoxelBuffer> vox
 
 	// TODO We need to output transition meshes through the generic interface, they are part of the result
 	// For now we can't support proper texture indices in this specific case
-	Transvoxel::DefaultTextureIndicesData default_texture_indices_data;
-	default_texture_indices_data.use = false;
 	Transvoxel::build_transition_mesh(voxels->get_buffer(), VoxelBufferInternal::CHANNEL_SDF, direction, 0,
-			static_cast<Transvoxel::TexturingMode>(_texture_mode), s_cache, s_mesh_arrays,
-			default_texture_indices_data);
+			static_cast<Transvoxel::TexturingMode>(_texture_mode), s_cache, s_mesh_arrays);
 
 	Ref<ArrayMesh> mesh;
 

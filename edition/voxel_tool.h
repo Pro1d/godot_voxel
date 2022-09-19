@@ -160,6 +160,31 @@ protected:
 		unsigned int index = 0;
 	};
 
+	struct SimpleTextureBlendSphereOp {
+		Vector3 center;
+		float radius_squared;
+		float sharpness_radius_ratio;
+		TextureParams tp;
+
+		SimpleTextureBlendSphereOp(Vector3 p_center, float p_radius, TextureParams p_tp) {
+			center = p_center;
+			radius_squared = (p_radius * p_radius);
+			sharpness_radius_ratio = tp.sharpness / p_radius;
+			tp = p_tp;
+		}
+
+		inline uint16_t operator()(Vector3i const& pos, uint16_t weights) const {
+			const float distance_squared = pos.to_vec3().distance_squared_to(center);
+			if (distance_squared < radius_squared) {
+  			const float distance = fast_sqrt(distance_squared);
+  			// (radius - distance) * sharpness / radius
+  			const float target_weight = tp.opacity * clamp(tp.sharpness - distance * sharpness_radius_ratio, 0.f, 1.f);
+				blend_texture_packed_u16(tp.index, target_weight, weights);
+			}
+			return weights;
+		}
+	};
+
 	struct TextureBlendSphereOp {
 		Vector3 center;
 		float radius;

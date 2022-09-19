@@ -106,4 +106,21 @@ inline void blend_texture_packed_u16(int texture_index, float target_weight,
 	}
 }
 
+inline void blend_texture_packed_u16(int texture_index, float target_weight,
+		uint16_t &encoded_weights) {
+#ifdef DEBUG_ENABLED
+	ERR_FAIL_COND(target_weight < 0.f || target_weight > 1.f);
+#endif
+
+	FixedArray<float, 4> weights_f = decode_texture_weights_f(encoded_weights);
+
+	if (weights_f[texture_index] < target_weight) {
+		weights_f[texture_index] = target_weight;
+
+		normalize_weights_preserving(weights_f, texture_index);
+
+		encoded_weights = encode_texture_weights_f(weights_f);
+	}
+}
+
 #endif // EDITION_FUNCS_H

@@ -129,6 +129,45 @@ static inline uint16_t real_to_quantized_u16(float v) {
 	return norm_to_u16(v * VoxelConstants::QUANTIZED_SDF_16_BITS_SCALE);
 }*/
 
+inline float texture_weight_to_float(uint8_t w)
+{
+  return w / 15.f;
+}
+
+inline uint8_t texture_weight_to_uint8(float w)
+{
+  return static_cast<uint8_t>(std::lround(w * 15.f));
+}
+
+inline FixedArray<uint8_t, 4> decode_texture_weights(uint16_t w)
+{
+	FixedArray<uint8_t, 4> weights;
+  weights[0] = ((w >> 0) & 0xf);
+  weights[1] = ((w >> 4) & 0xf);
+  weights[2] = ((w >> 8) & 0xf);
+  weights[3] = ((w >> 12) & 0xf);
+  return weights;
+}
+inline FixedArray<float, 4> decode_texture_weights_f(uint16_t w)
+{
+	FixedArray<float, 4> weights;
+  weights[0] = texture_weight_to_float((w >> 0) & 0xf);
+  weights[1] = texture_weight_to_float((w >> 4) & 0xf);
+  weights[2] = texture_weight_to_float((w >> 8) & 0xf);
+  weights[3] = texture_weight_to_float((w >> 12) & 0xf);
+  return weights;
+}
+inline uint16_t encode_texture_weights(FixedArray<uint8_t, 4> const& weights)
+{
+  return weights[0] | (weights[1] << 4) | (weights[2] << 8) | (weights[3] << 12);
+}
+inline uint16_t encode_texture_weights_f(FixedArray<float, 4> const& weights)
+{
+  return texture_weight_to_uint8(weights[0]) |
+    (texture_weight_to_uint8(weights[1]) << 4) |
+    (texture_weight_to_uint8(weights[2]) << 8) |
+    (texture_weight_to_uint8(weights[3]) << 12) ;
+}
 inline FixedArray<uint8_t, 4> decode_weights_from_packed_u16(uint16_t packed_weights) {
 	FixedArray<uint8_t, 4> weights;
 	// SIMDable?

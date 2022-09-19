@@ -175,4 +175,15 @@ inline size_t alignup(size_t a, size_t align) {
 // 	return i & (i - 1);
 // }
 
+inline float fast_rsqrt(float x)
+{
+	union {float f; int i;} y = {x};
+	y.i = 0x5f3759df - (y.i >> 1);
+	return y.f;
+}
+inline float fast_sqrt(float x)
+{
+	return x * fast_rsqrt(x);
+}
+
 #endif // VOXEL_MATH_FUNCS_H

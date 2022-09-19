@@ -55,12 +55,10 @@ struct MeshArrays {
 
 struct ReuseCell {
 	FixedArray<int, 4> vertices;
-	unsigned int packed_texture_indices = 0;
 };
 
 struct ReuseTransitionCell {
 	FixedArray<int, 12> vertices;
-	unsigned int packed_texture_indices = 0;
 };
 
 class Cache {
@@ -108,18 +106,17 @@ private:
 };
 
 // This is only to re-use some data computed for regular mesh into transition meshes
-struct DefaultTextureIndicesData {
-	FixedArray<uint8_t, 4> indices;
-	uint32_t packed_indices;
-	bool use;
-};
+//struct DefaultTextureIndicesData {
+//	FixedArray<uint8_t, 4> indices;
+//	uint32_t packed_indices;
+//	bool use;
+//};
 
-DefaultTextureIndicesData build_regular_mesh(const VoxelBufferInternal &voxels, unsigned int sdf_channel, int lod_index,
+void build_regular_mesh(const VoxelBufferInternal &voxels, unsigned int sdf_channel, int lod_index,
 		TexturingMode texturing_mode, Cache &cache, MeshArrays &output);
 
 void build_transition_mesh(const VoxelBufferInternal &voxels, unsigned int sdf_channel, int direction, int lod_index,
-		TexturingMode texturing_mode, Cache &cache, MeshArrays &output,
-		DefaultTextureIndicesData default_texture_indices_data);
+		TexturingMode texturing_mode, Cache &cache, MeshArrays &output);
 
 } // namespace Transvoxel
 

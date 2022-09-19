@@ -141,12 +141,11 @@ inline Vector3 get_corner_gradient(
 	return Vector3(nx - px, ny - py, nz - pz);
 }
 
-inline uint32_t pack_bytes(const FixedArray<uint8_t, 4> &a) {
-	return (a[0] | (a[1] << 8) | (a[2] << 16) | (a[3] << 24));
-}
+//inline uint32_t pack_bytes(const FixedArray<uint8_t, 4> &a) {
+//	return (a[0] | (a[1] << 8) | (a[2] << 16) | (a[3] << 24));
+//}
 
-void add_texture_data(std::vector<Vector2> &uv, unsigned int packed_indices,
-		FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights) {
+void add_texture_data(std::vector<Vector2> &uv, FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights) {
 	struct IntUV {
 		uint32_t x;
 		uint32_t y;
@@ -155,116 +154,28 @@ void add_texture_data(std::vector<Vector2> &uv, unsigned int packed_indices,
 	uv.push_back(Vector2());
 	IntUV &iuv = *(reinterpret_cast<IntUV *>(&uv.back()));
 	//print_line(String("{0}, {1}, {2}, {3}").format(varray(weights[0], weights[1], weights[2], weights[3])));
-	iuv.x = packed_indices;
-	iuv.y = pack_bytes(weights);
+	iuv.x = encode_texture_weights(weights);
 }
 
 template <unsigned int NVoxels>
 struct CellTextureDatas {
-	uint32_t packed_indices = 0;
-	FixedArray<uint8_t, MAX_TEXTURE_BLENDS> indices;
 	FixedArray<FixedArray<uint8_t, MAX_TEXTURE_BLENDS>, NVoxels> weights;
 };
 
-template <unsigned int NVoxels, typename WeightSampler_T>
-CellTextureDatas<NVoxels> select_textures(const FixedArray<unsigned int, NVoxels> &voxel_indices,
-		Span<const uint16_t> indices_data, const WeightSampler_T &weights_sampler) {
-	// TODO Optimization: this function takes almost half of the time when polygonizing non-empty cells.
-	// I wonder how it can be optimized further?
-
-	struct IndexAndWeight {
-		unsigned int index;
-		unsigned int weight;
-	};
-
-	FixedArray<FixedArray<uint8_t, MAX_TEXTURES>, NVoxels> cell_texture_weights_temp;
-	FixedArray<IndexAndWeight, MAX_TEXTURES> indexed_weight_sums;
-
-	// Find 4 most-used indices in voxels
-	for (unsigned int i = 0; i < indexed_weight_sums.size(); ++i) {
-		indexed_weight_sums[i] = IndexAndWeight{ i, 0 };
-	}
-	for (unsigned int ci = 0; ci < voxel_indices.size(); ++ci) {
-		//VOXEL_PROFILE_SCOPE();
-
-		const unsigned int data_index = voxel_indices[ci];
-		const FixedArray<uint8_t, 4> indices = decode_indices_from_packed_u16(indices_data[data_index]);
-		const FixedArray<uint8_t, 4> weights = weights_sampler.get_weights(data_index);
-
-		FixedArray<uint8_t, MAX_TEXTURES> &weights_temp = cell_texture_weights_temp[ci];
-		weights_temp.fill(0);
-
-		for (unsigned int j = 0; j < indices.size(); ++j) {
-			const unsigned int ti = indices[j];
-			indexed_weight_sums[ti].weight += weights[j];
-			weights_temp[ti] = weights[j];
-		}
-	}
-	struct IndexAndWeightComparator {
-		inline bool operator()(const IndexAndWeight &a, const IndexAndWeight &b) const {
-			return a.weight > b.weight;
-		}
-	};
-	SortArray<IndexAndWeight, IndexAndWeightComparator> sorter;
-	sorter.sort(indexed_weight_sums.data(), indexed_weight_sums.size());
-
-	CellTextureDatas<NVoxels> cell_textures;
-
-	// Assign indices
-	for (unsigned int i = 0; i < cell_textures.indices.size(); ++i) {
-		cell_textures.indices[i] = indexed_weight_sums[i].index;
-	}
-
-	// Sort indices to avoid cases that are ambiguous for blending, like 1,2,3,4 and 2,1,3,4
-	// TODO maybe we could require this sorting to be done up front?
-	// Or maybe could be done after meshing so we do it less times?
-	sort(
-			cell_textures.indices[0],
-			cell_textures.indices[1],
-			cell_textures.indices[2],
-			cell_textures.indices[3]);
-
-	cell_textures.packed_indices = pack_bytes(cell_textures.indices);
-
-	// Remap weights to follow the indices we selected
-	for (unsigned int ci = 0; ci < cell_texture_weights_temp.size(); ++ci) {
-		//VOXEL_PROFILE_SCOPE();
-		const FixedArray<uint8_t, MAX_TEXTURES> &src_weights = cell_texture_weights_temp[ci];
-		FixedArray<uint8_t, 4> &dst_weights = cell_textures.weights[ci];
-
-		for (unsigned int i = 0; i < cell_textures.indices.size(); ++i) {
-			const unsigned int ti = cell_textures.indices[i];
-			dst_weights[i] = src_weights[ti];
-		}
-	}
-
-	return cell_textures;
-}
-
-struct TextureIndicesData {
-	Span<const uint16_t> buffer;
-	FixedArray<uint8_t, 4> default_indices;
-	uint32_t packed_default_indices;
-};
+//struct TextureIndicesData {
+//	Span<const uint16_t> buffer;
+//	FixedArray<uint8_t, 4> default_indices;
+//	uint32_t packed_default_indices;
+//};
 
 template <unsigned int NVoxels, typename WeightSampler_T>
 inline void get_cell_texture_data(CellTextureDatas<NVoxels> &cell_textures,
-		const TextureIndicesData &texture_indices_data,
 		const FixedArray<unsigned int, NVoxels> &voxel_indices,
 		const WeightSampler_T &weights_data) {
-	if (texture_indices_data.buffer.size() == 0) {
-		// Indices are known for the whole block, just read weights directly
-		cell_textures.indices = texture_indices_data.default_indices;
-		cell_textures.packed_indices = texture_indices_data.packed_default_indices;
-		for (unsigned int ci = 0; ci < voxel_indices.size(); ++ci) {
-			const unsigned int wi = voxel_indices[ci];
-			cell_textures.weights[ci] = weights_data.get_weights(wi);
-		}
-
-	} else {
-		// There can be more than 4 indices or they are not known, so we have to select them
-		cell_textures = select_textures(voxel_indices, texture_indices_data.buffer, weights_data);
-	}
+  for (unsigned int ci = 0; ci < voxel_indices.size(); ++ci) {
+    const unsigned int wi = voxel_indices[ci];
+    cell_textures.weights[ci] = weights_data.get_weights(wi);
+  }
 }
 
 template <typename Sdf_T>
@@ -289,7 +200,6 @@ inline float get_isolevel<float>() {
 template <typename Sdf_T, typename WeightSampler_T>
 void build_regular_mesh(
 		Span<const Sdf_T> sdf_data,
-		TextureIndicesData texture_indices_data,
 		const WeightSampler_T &weights_sampler,
 		const Vector3i block_size_with_padding,
 		int lod_index, TexturingMode texturing_mode, Cache &cache, MeshArrays &output) {
@@ -419,8 +329,7 @@ void build_regular_mesh(
 
 				CellTextureDatas<8> cell_textures;
 				if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
-					get_cell_texture_data(cell_textures, texture_indices_data, corner_data_indices, weights_sampler);
-					current_reuse_cell.packed_texture_indices = cell_textures.packed_indices;
+					get_cell_texture_data(cell_textures, corner_data_indices, weights_sampler);
 				}
 
 				FixedArray<Vector3i, 8> corner_positions;
@@ -508,10 +417,8 @@ void build_regular_mesh(
 						if (present) {
 							const Vector3i cache_pos = pos + dir_to_prev_vec(reuse_dir);
 							const ReuseCell &prev_cell = cache.get_reuse_cell(cache_pos);
-							if (prev_cell.packed_texture_indices == cell_textures.packed_indices) {
-								// Will reuse a previous vertice
-								cell_vertex_indices[vertex_index] = prev_cell.vertices[reuse_vertex_index];
-							}
+              // Will reuse a previous vertice
+              cell_vertex_indices[vertex_index] = prev_cell.vertices[reuse_vertex_index];
 						}
 
 						if (!present || cell_vertex_indices[vertex_index] == -1) {
@@ -554,14 +461,15 @@ void build_regular_mesh(
 									output.add_vertex(primaryf, normal, border_mask, secondary);
 
 							if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
-								const FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights0 = cell_textures.weights[v0];
-								const FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights1 = cell_textures.weights[v1];
+								const FixedArray<uint8_t, MAX_TEXTURE_BLENDS>& weights0 = cell_textures.weights[v0];
+								const FixedArray<uint8_t, MAX_TEXTURE_BLENDS>& weights1 = cell_textures.weights[v1];
 								FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights;
 								for (unsigned int i = 0; i < MAX_TEXTURE_BLENDS; ++i) {
-									weights[i] = static_cast<uint8_t>(
-											clamp(Math::lerp(weights0[i], weights1[i], t1), 0.f, 255.f));
+                  const float w0 = texture_weight_to_float(weights0[i]);
+                  const float w1 = texture_weight_to_float(weights1[i]);
+									weights[i] = texture_weight_to_uint8(Math::lerp(w0, w1, t1));
 								}
-								add_texture_data(output.uv, cell_textures.packed_indices, weights);
+								add_texture_data(output.uv, weights);
 							}
 
 							if (reuse_dir & 8) {
@@ -593,8 +501,8 @@ void build_regular_mesh(
 								output.add_vertex(primaryf, normal, border_mask, secondary);
 
 						if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
-							const FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights1 = cell_textures.weights[v1];
-							add_texture_data(output.uv, cell_textures.packed_indices, weights1);
+							const FixedArray<uint8_t, MAX_TEXTURE_BLENDS>& weights1 = cell_textures.weights[v1];
+							add_texture_data(output.uv, weights1);
 						}
 
 						current_reuse_cell.vertices[0] = cell_vertex_indices[vertex_index];
@@ -642,8 +550,8 @@ void build_regular_mesh(
 									output.add_vertex(primaryf, normal, border_mask, secondary);
 
 							if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
-								const FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights = cell_textures.weights[vi];
-								add_texture_data(output.uv, cell_textures.packed_indices, weights);
+								const FixedArray<uint8_t, MAX_TEXTURE_BLENDS>& weights = cell_textures.weights[vi];
+								add_texture_data(output.uv, weights);
 							}
 						}
 					}
@@ -743,7 +651,6 @@ inline void get_face_axes(int &ax, int &ay, int dir) {
 template <typename Sdf_T, typename WeightSampler_T>
 void build_transition_mesh(
 		Span<const Sdf_T> sdf_data,
-		TextureIndicesData texture_indices_data,
 		const WeightSampler_T &weights_sampler,
 		const Vector3i block_size_with_padding,
 		int direction, int lod_index, TexturingMode texturing_mode, Cache &cache, MeshArrays &output) {
@@ -887,10 +794,7 @@ void build_transition_mesh(
 			CellTextureDatas<13> cell_textures;
 			if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
 				CellTextureDatas<9> cell_textures_partial;
-				get_cell_texture_data(cell_textures_partial, texture_indices_data, cell_data_indices, weights_sampler);
-
-				cell_textures.indices = cell_textures_partial.indices;
-				cell_textures.packed_indices = cell_textures_partial.packed_indices;
+				get_cell_texture_data(cell_textures_partial, cell_data_indices, weights_sampler);
 
 				for (unsigned int i = 0; i < cell_textures_partial.weights.size(); ++i) {
 					cell_textures.weights[i] = cell_textures_partial.weights[i];
@@ -900,9 +804,6 @@ void build_transition_mesh(
 				cell_textures.weights[0xA] = cell_textures_partial.weights[2];
 				cell_textures.weights[0xB] = cell_textures_partial.weights[6];
 				cell_textures.weights[0xC] = cell_textures_partial.weights[8];
-
-				ReuseTransitionCell &current_reuse_cell = cache.get_reuse_cell_2d(fx, fy);
-				current_reuse_cell.packed_texture_indices = cell_textures.packed_indices;
 			}
 
 			CRASH_COND(case_code > 511);
@@ -1005,10 +906,8 @@ void build_transition_mesh(
 						// from which to retrieve the reused vertex index from.
 						const ReuseTransitionCell &prev =
 								cache.get_reuse_cell_2d(fx - (reuse_direction & 1), fy - ((reuse_direction >> 1) & 1));
-						if (prev.packed_texture_indices == cell_textures.packed_indices) {
-							// Reuse the vertex index from the previous cell.
-							cell_vertex_indices[vertex_index] = prev.vertices[vertex_index_to_reuse_or_create];
-						}
+            // Reuse the vertex index from the previous cell.
+            cell_vertex_indices[vertex_index] = prev.vertices[vertex_index_to_reuse_or_create];
 					}
 
 					if (!present || cell_vertex_indices[vertex_index] == -1) {
@@ -1045,14 +944,15 @@ void build_transition_mesh(
 						cell_vertex_indices[vertex_index] = output.add_vertex(primaryf, normal, border_mask, secondary);
 
 						if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
-							const FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights0 = cell_textures.weights[index_vertex_a];
-							const FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights1 = cell_textures.weights[index_vertex_b];
+							const FixedArray<uint8_t, MAX_TEXTURE_BLENDS>& weights0 = cell_textures.weights[index_vertex_a];
+							const FixedArray<uint8_t, MAX_TEXTURE_BLENDS>& weights1 = cell_textures.weights[index_vertex_b];
 							FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights;
-							for (unsigned int i = 0; i < cell_textures.indices.size(); ++i) {
-								weights[i] = static_cast<uint8_t>(
-										clamp(Math::lerp(weights0[i], weights1[i], t1), 0.f, 255.f));
+							for (unsigned int i = 0; i < weights.size(); ++i) {
+                const float w0 = texture_weight_to_float(weights0[i]);
+                const float w1 = texture_weight_to_float(weights1[i]);
+								weights[i] = texture_weight_to_uint8(Math::lerp(w0, w1, t1));
 							}
-							add_texture_data(output.uv, cell_textures.packed_indices, weights);
+							add_texture_data(output.uv, weights);
 						}
 
 						if (reuse_direction & 0x8) {
@@ -1107,7 +1007,7 @@ void build_transition_mesh(
 
 						if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
 							const FixedArray<uint8_t, MAX_TEXTURE_BLENDS> weights = cell_textures.weights[cell_index];
-							add_texture_data(output.uv, cell_textures.packed_indices, weights);
+							add_texture_data(output.uv, weights);
 						}
 
 						// We are on a corner so the vertex will be re-usable later
@@ -1159,67 +1059,42 @@ Span<const T> get_or_decompress_channel(
 	}
 }
 
-TextureIndicesData get_texture_indices_data(const VoxelBufferInternal &voxels, unsigned int channel,
-		DefaultTextureIndicesData &out_default_texture_indices_data) {
-	ERR_FAIL_COND_V(voxels.get_channel_depth(channel) != VoxelBufferInternal::DEPTH_16_BIT, TextureIndicesData());
+//TextureIndicesData get_texture_indices_data(const VoxelBufferInternal &voxels, unsigned int channel,
+//		DefaultTextureIndicesData &out_default_texture_indices_data) {
+//	ERR_FAIL_COND_V(voxels.get_channel_depth(channel) != VoxelBufferInternal::DEPTH_16_BIT, TextureIndicesData());
+//
+//	TextureIndicesData data;
+//
+//	if (voxels.is_uniform(channel)) {
+//		const uint16_t encoded_indices = voxels.get_voxel(Vector3i(), channel);
+//		data.default_indices = decode_indices_from_packed_u16(encoded_indices);
+//		data.packed_default_indices = pack_bytes(data.default_indices);
+//
+//		out_default_texture_indices_data.indices = data.default_indices;
+//		out_default_texture_indices_data.packed_indices = data.packed_default_indices;
+//		out_default_texture_indices_data.use = true;
+//
+//	} else {
+//		Span<uint8_t> data_bytes;
+//		CRASH_COND(voxels.get_channel_raw(channel, data_bytes) == false);
+//		data.buffer = data_bytes.reinterpret_cast_to<const uint16_t>();
+//
+//		out_default_texture_indices_data.use = false;
+//	}
+//
+//	return data;
+//}
 
-	TextureIndicesData data;
-
-	if (voxels.is_uniform(channel)) {
-		const uint16_t encoded_indices = voxels.get_voxel(Vector3i(), channel);
-		data.default_indices = decode_indices_from_packed_u16(encoded_indices);
-		data.packed_default_indices = pack_bytes(data.default_indices);
-
-		out_default_texture_indices_data.indices = data.default_indices;
-		out_default_texture_indices_data.packed_indices = data.packed_default_indices;
-		out_default_texture_indices_data.use = true;
-
-	} else {
-		Span<uint8_t> data_bytes;
-		CRASH_COND(voxels.get_channel_raw(channel, data_bytes) == false);
-		data.buffer = data_bytes.reinterpret_cast_to<const uint16_t>();
-
-		out_default_texture_indices_data.use = false;
-	}
-
-	return data;
-}
-
-// I'm not really decided if doing this is better or not yet?
-//#define USE_TRICHANNEL
-
-#ifdef USE_TRICHANNEL
-// TODO Is this a faster/equivalent option with better precision?
-struct WeightSampler3U8 {
-	Span<const uint8_t> u8_data0;
-	Span<const uint8_t> u8_data1;
-	Span<const uint8_t> u8_data2;
-	inline FixedArray<uint8_t, 4> get_weights(int i) const {
-		FixedArray<uint8_t, 4> w;
-		w[0] = u8_data0[i];
-		w[1] = u8_data1[i];
-		w[2] = u8_data2[i];
-		w[3] = 255 - (w[0] + w[1] + w[2]);
-		return w;
-	}
-};
-
-thread_local std::vector<uint8_t> s_weights_backing_buffer_u8_0;
-thread_local std::vector<uint8_t> s_weights_backing_buffer_u8_1;
-thread_local std::vector<uint8_t> s_weights_backing_buffer_u8_2;
-
-#else
 struct WeightSamplerPackedU16 {
 	Span<const uint16_t> u16_data;
 	inline FixedArray<uint8_t, 4> get_weights(int i) const {
-		return decode_weights_from_packed_u16(u16_data[i]);
+    return decode_texture_weights(u16_data[i]);
 	}
 };
 
 thread_local std::vector<uint16_t> s_weights_backing_buffer_u16;
-#endif
 
-DefaultTextureIndicesData build_regular_mesh(const VoxelBufferInternal &voxels, unsigned int sdf_channel, int lod_index,
+void build_regular_mesh(const VoxelBufferInternal &voxels, unsigned int sdf_channel, int lod_index,
 		TexturingMode texturing_mode, Cache &cache, MeshArrays &output) {
 	VOXEL_PROFILE_SCOPE();
 	// From this point, we expect the buffer to contain allocated data in the relevant channels.
@@ -1229,38 +1104,14 @@ DefaultTextureIndicesData build_regular_mesh(const VoxelBufferInternal &voxels, 
 
 	const unsigned int voxels_count = voxels.get_size().volume();
 
-	DefaultTextureIndicesData default_texture_indices_data;
-	default_texture_indices_data.use = false;
-	TextureIndicesData indices_data;
-#ifdef USE_TRICHANNEL
-	WeightSampler3U8 weights_data;
-	if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
-		// From this point we know SDF is not uniform so it has an allocated buffer,
-		// but it might have uniform indices or weights so we need to ensure there is a backing buffer.
-		indices_data =
-				get_texture_indices_data(voxels, VoxelBufferInternal::CHANNEL_INDICES, default_texture_indices_data);
-		weights_data.u8_data0 =
-				get_or_decompress_channel(voxels, s_weights_backing_buffer_u8_0, VoxelBufferInternal::CHANNEL_WEIGHTS);
-		weights_data.u8_data1 =
-				get_or_decompress_channel(voxels, s_weights_backing_buffer_u8_1, VoxelBufferInternal::CHANNEL_DATA5);
-		weights_data.u8_data2 =
-				get_or_decompress_channel(voxels, s_weights_backing_buffer_u8_2, VoxelBufferInternal::CHANNEL_DATA6);
-		ERR_FAIL_COND_V(weights_data.u8_data0.size() != voxels_count, default_texture_indices_data);
-		ERR_FAIL_COND_V(weights_data.u8_data1.size() != voxels_count, default_texture_indices_data);
-		ERR_FAIL_COND_V(weights_data.u8_data2.size() != voxels_count, default_texture_indices_data);
-	}
-#else
 	WeightSamplerPackedU16 weights_data;
 	if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
 		// From this point we know SDF is not uniform so it has an allocated buffer,
 		// but it might have uniform indices or weights so we need to ensure there is a backing buffer.
-		indices_data =
-				get_texture_indices_data(voxels, VoxelBufferInternal::CHANNEL_INDICES, default_texture_indices_data);
 		weights_data.u16_data =
 				get_or_decompress_channel(voxels, s_weights_backing_buffer_u16, VoxelBufferInternal::CHANNEL_WEIGHTS);
-		ERR_FAIL_COND_V(weights_data.u16_data.size() != voxels_count, default_texture_indices_data);
+		ERR_FAIL_COND(weights_data.u16_data.size() != voxels_count);
 	}
-#endif
 
 	// We settle data types up-front so we can get rid of abstraction layers and conditionals,
 	// which would otherwise harm performance in tight iterations
@@ -1268,19 +1119,19 @@ DefaultTextureIndicesData build_regular_mesh(const VoxelBufferInternal &voxels, 
 		case VoxelBufferInternal::DEPTH_8_BIT: {
 			Span<const uint8_t> sdf_data = sdf_data_raw.reinterpret_cast_to<const uint8_t>();
 			build_regular_mesh<uint8_t>(
-					sdf_data, indices_data, weights_data, voxels.get_size(), lod_index, texturing_mode, cache, output);
+					sdf_data, weights_data, voxels.get_size(), lod_index, texturing_mode, cache, output);
 		} break;
 
 		case VoxelBufferInternal::DEPTH_16_BIT: {
 			Span<const uint16_t> sdf_data = sdf_data_raw.reinterpret_cast_to<const uint16_t>();
 			build_regular_mesh<uint16_t>(
-					sdf_data, indices_data, weights_data, voxels.get_size(), lod_index, texturing_mode, cache, output);
+					sdf_data, weights_data, voxels.get_size(), lod_index, texturing_mode, cache, output);
 		} break;
 
 		case VoxelBufferInternal::DEPTH_32_BIT: {
 			Span<const float> sdf_data = sdf_data_raw.reinterpret_cast_to<const float>();
 			build_regular_mesh<float>(
-					sdf_data, indices_data, weights_data, voxels.get_size(), lod_index, texturing_mode, cache, output);
+					sdf_data, weights_data, voxels.get_size(), lod_index, texturing_mode, cache, output);
 		} break;
 
 		case VoxelBufferInternal::DEPTH_64_BIT:
@@ -1292,13 +1143,10 @@ DefaultTextureIndicesData build_regular_mesh(const VoxelBufferInternal &voxels, 
 			ERR_PRINT("Invalid channel");
 			break;
 	}
-
-	return default_texture_indices_data;
 }
 
 void build_transition_mesh(const VoxelBufferInternal &voxels, unsigned int sdf_channel, int direction, int lod_index,
-		TexturingMode texturing_mode, Cache &cache, MeshArrays &output,
-		DefaultTextureIndicesData default_texture_indices_data) {
+		TexturingMode texturing_mode, Cache &cache, MeshArrays &output) {
 	VOXEL_PROFILE_SCOPE();
 	// From this point, we expect the buffer to contain allocated data in the relevant channels.
 
@@ -1308,65 +1156,29 @@ void build_transition_mesh(const VoxelBufferInternal &voxels, unsigned int sdf_c
 	const unsigned int voxels_count = voxels.get_size().volume();
 
 	// TODO Support more texturing data configurations
-	TextureIndicesData indices_data;
-#ifdef USE_TRICHANNEL
-	WeightSampler3U8 weights_data;
-	if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
-		if (default_texture_indices_data.use) {
-			indices_data.default_indices = default_texture_indices_data.indices;
-			indices_data.packed_default_indices = default_texture_indices_data.packed_indices;
-		} else {
-			// From this point we know SDF is not uniform so it has an allocated buffer,
-			// but it might have uniform indices or weights so we need to ensure there is a backing buffer.
-			// TODO Is it worth doing conditionnals instead during meshing?
-			indices_data = get_texture_indices_data(
-					voxels, VoxelBufferInternal::CHANNEL_INDICES, default_texture_indices_data);
-		}
-		weights_data.u8_data0 =
-				get_or_decompress_channel(voxels, s_weights_backing_buffer_u8_0, VoxelBufferInternal::CHANNEL_WEIGHTS);
-		weights_data.u8_data1 =
-				get_or_decompress_channel(voxels, s_weights_backing_buffer_u8_1, VoxelBufferInternal::CHANNEL_DATA5);
-		weights_data.u8_data2 =
-				get_or_decompress_channel(voxels, s_weights_backing_buffer_u8_2, VoxelBufferInternal::CHANNEL_DATA6);
-		ERR_FAIL_COND(weights_data.u8_data0.size() != voxels_count);
-		ERR_FAIL_COND(weights_data.u8_data1.size() != voxels_count);
-		ERR_FAIL_COND(weights_data.u8_data2.size() != voxels_count);
-	}
-#else
 	WeightSamplerPackedU16 weights_data;
 	if (texturing_mode == TEXTURES_BLEND_4_OVER_16) {
-		if (default_texture_indices_data.use) {
-			indices_data.default_indices = default_texture_indices_data.indices;
-			indices_data.packed_default_indices = default_texture_indices_data.packed_indices;
-		} else {
-			// From this point we know SDF is not uniform so it has an allocated buffer,
-			// but it might have uniform indices or weights so we need to ensure there is a backing buffer.
-			// TODO Is it worth doing conditionnals instead during meshing?
-			indices_data = get_texture_indices_data(
-					voxels, VoxelBufferInternal::CHANNEL_INDICES, default_texture_indices_data);
-		}
 		weights_data.u16_data =
 				get_or_decompress_channel(voxels, s_weights_backing_buffer_u16, VoxelBufferInternal::CHANNEL_WEIGHTS);
 		ERR_FAIL_COND(weights_data.u16_data.size() != voxels_count);
 	}
-#endif
 
 	switch (voxels.get_channel_depth(sdf_channel)) {
 		case VoxelBufferInternal::DEPTH_8_BIT: {
 			Span<const uint8_t> sdf_data = sdf_data_raw.reinterpret_cast_to<const uint8_t>();
-			build_transition_mesh<uint8_t>(sdf_data, indices_data, weights_data,
+			build_transition_mesh<uint8_t>(sdf_data, weights_data,
 					voxels.get_size(), direction, lod_index, texturing_mode, cache, output);
 		} break;
 
 		case VoxelBufferInternal::DEPTH_16_BIT: {
 			Span<const uint16_t> sdf_data = sdf_data_raw.reinterpret_cast_to<const uint16_t>();
-			build_transition_mesh<uint16_t>(sdf_data, indices_data, weights_data,
+			build_transition_mesh<uint16_t>(sdf_data, weights_data,
 					voxels.get_size(), direction, lod_index, texturing_mode, cache, output);
 		} break;
 
 		case VoxelBufferInternal::DEPTH_32_BIT: {
 			Span<const float> sdf_data = sdf_data_raw.reinterpret_cast_to<const float>();
-			build_transition_mesh<float>(sdf_data, indices_data, weights_data,
+			build_transition_mesh<float>(sdf_data, weights_data,
 					voxels.get_size(), direction, lod_index, texturing_mode, cache, output);
 		} break;
 

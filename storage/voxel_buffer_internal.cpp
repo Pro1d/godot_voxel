@@ -126,7 +126,7 @@ VoxelBufferInternal::VoxelBufferInternal() {
 	_channels[CHANNEL_INDICES].defval = encode_indices_to_packed_u16(0, 1, 2, 3);
 
 	_channels[CHANNEL_WEIGHTS].depth = VoxelBufferInternal::DEPTH_16_BIT;
-	_channels[CHANNEL_WEIGHTS].defval = encode_weights_to_packed_u16(15, 0, 0, 0);
+	_channels[CHANNEL_WEIGHTS].defval = 0xf;
 }
 
 VoxelBufferInternal::VoxelBufferInternal(VoxelBufferInternal &&src) {

@@ -58,8 +58,9 @@ public:
 
 	void on_data_block_loaded(Vector3i grid_position, unsigned int lod_index,
 			std::unique_ptr<VoxelInstanceBlockData> instances);
-	void on_mesh_block_enter(Vector3i render_grid_position, unsigned int lod_index, Array surface_arrays);
+	void on_mesh_block_enter(Vector3i render_grid_position, unsigned int lod_index, Array const& surface_arrays);
 	void on_mesh_block_exit(Vector3i render_grid_position, unsigned int lod_index);
+	void on_mesh_block_updated(Vector3i render_grid_position, unsigned int lod_index, Array const& surface_arrays);
 	void on_area_edited(Box3i p_voxel_box);
 	void on_body_removed(Vector3i data_block_position, unsigned int render_block_index, int instance_index);
 	void on_scene_instance_removed(Vector3i data_block_position, unsigned int render_block_index, int instance_index);
@@ -96,7 +97,7 @@ private:
 	void regenerate_layer(uint16_t layer_id, bool regenerate_blocks);
 	void update_layer_meshes(int layer_id);
 	void update_layer_scenes(int layer_id);
-	void create_render_blocks(Vector3i grid_position, int lod_index, Array surface_arrays);
+	void create_render_blocks(Vector3i grid_position, int lod_index, Array const& surface_arrays);
 
 	struct SceneInstance {
 		VoxelInstanceComponent *component = nullptr;

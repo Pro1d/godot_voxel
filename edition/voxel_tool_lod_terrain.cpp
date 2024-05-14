@@ -262,7 +262,6 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 			else
 				return norm_to_u16(edited_sdf > 0 ? 1.f : -1.f);
 		});
-		_post_edit(box_edit);
 	};
 
 	SphereBrush brush{center, radius};
@@ -340,7 +339,6 @@ void VoxelToolLodTerrain::do_sphere(Vector3 center, float radius) {
 		case MODE_TEXTURE_PAINT: {
 			_terrain->write_box(box_edit, VoxelBufferInternal::CHANNEL_WEIGHTS,
 					SimpleTextureBlendSphereOp{ center, radius, _texture_params });
-			_post_edit(box_edit);
 		} break;
 
 		default:

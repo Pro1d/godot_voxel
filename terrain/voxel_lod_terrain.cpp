@@ -1735,6 +1735,14 @@ void VoxelLodTerrain::apply_mesh_update(const VoxelServer::BlockMeshOutput &ob) 
 			block->set_shader_material(sm);
 		}
 	}
+  else {
+
+		// TODO Need a more generic API for this kind of stuff
+		if (_instancer != nullptr && ob.surfaces.surfaces.size() > 0) {
+			// TODO The mesh could come from an edited region!
+			// We would have to know if specific voxels got edited, or different from the generator
+			_instancer->on_mesh_block_updated(ob.position, ob.lod, ob.surfaces.surfaces[0]);
+		}
 
 	block->set_mesh(mesh);
 	{
@@ -1771,6 +1779,10 @@ void VoxelLodTerrain::apply_mesh_update(const VoxelServer::BlockMeshOutput &ob) 
 	}
 
 	block->set_parent_transform(get_global_transform());
+
+  if (_instancer != nullptr) {
+    _instancer->regenerate_block(/*block, */ob.position, ob.lod);
+  }
 }
 
 void VoxelLodTerrain::process_deferred_collision_updates(uint32_t timeout_msec) {

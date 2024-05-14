@@ -191,4 +191,12 @@ inline bool is_uniform(const Item_T *p_data, size_t item_count) {
 	return true;
 }
 
+template <typename T>
+T const& get_pool_vector(Variant const& v)
+{
+  return *reinterpret_cast<const PoolVector<T>*>(_data._mem);
+}
+
+
+
 #endif // HEADER_VOXEL_UTILITY_H

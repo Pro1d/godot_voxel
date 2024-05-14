@@ -36,7 +36,7 @@ void VoxelInstanceGenerator::generate_transforms(
 		Vector3i grid_position,
 		int lod_index,
 		int layer_id,
-		Array surface_arrays,
+		Array const& surface_arrays,
 		const Transform &block_local_transform,
 		UpMode up_mode,
 		uint8_t octant_mask,
@@ -45,11 +45,12 @@ void VoxelInstanceGenerator::generate_transforms(
 
 	if (surface_arrays.size() < ArrayMesh::ARRAY_VERTEX &&
 			surface_arrays.size() < ArrayMesh::ARRAY_NORMAL &&
-			surface_arrays.size() < ArrayMesh::ARRAY_INDEX) {
+			surface_arrays.size() < ArrayMesh::ARRAY_INDEX &&
+			surface_arrays.size() < ArrayMesh::ARRAY_TEX_UV) {
 		return;
 	}
 
-	PoolVector3Array vertices = surface_arrays[ArrayMesh::ARRAY_VERTEX];
+	PoolVector3Array const& vertices = get_pool_vector<Vector3>(surface_arrays[ArrayMesh::ARRAY_VERTEX]);
 	if (vertices.size() == 0) {
 		return;
 	}
@@ -58,12 +59,19 @@ void VoxelInstanceGenerator::generate_transforms(
 		return;
 	}
 
-	PoolVector3Array normals = surface_arrays[ArrayMesh::ARRAY_NORMAL];
+	PoolVector3Array const& normals = get_pool_vector<Vector3>(surface_arrays[ArrayMesh::ARRAY_NORMAL]);
 	ERR_FAIL_COND(normals.size() == 0);
 
-	PoolIntArray indices = surface_arrays[ArrayMesh::ARRAY_INDEX];
+	PoolIntArray const& indices = get_pool_vector<int>(surface_arrays[ArrayMesh::ARRAY_INDEX]);
 	ERR_FAIL_COND(indices.size() == 0);
 	ERR_FAIL_COND(indices.size() % 3 != 0);
+
+	PoolVector2Array const& uvs = get_pool_vector<Vector2>(surface_arrays[ArrayMesh::ARRAY_TEX_UV]);
+	const auto uv_to_tw = [](Vector2 const& uv) {
+		union { float f; uint32_t u32; } f_to_u32 = {uv.x};
+		return static_cast<uint16_t>(f_to_u32.u32);
+	};
+	ERR_FAIL_COND(uvs.size() == 0);
 
 	const uint32_t block_pos_hash = Vector3iHasher::hash(grid_position);
 
@@ -83,12 +91,15 @@ void VoxelInstanceGenerator::generate_transforms(
 	static thread_local std::vector<Vector3> g_vertex_cache;
 	static thread_local std::vector<Vector3> g_normal_cache;
 	static thread_local std::vector<float> g_noise_cache;
+	static thread_local std::vector<uint16_t> g_texture_weights_cache;
 
 	std::vector<Vector3> &vertex_cache = g_vertex_cache;
 	std::vector<Vector3> &normal_cache = g_normal_cache;
+	std::vector<uint16_t> &texture_weights_cache = g_texture_weights_cache;
 
 	vertex_cache.clear();
 	normal_cache.clear();
+	texture_weights_cache.clear();
 
 	// Pick random points
 	{
@@ -96,6 +107,7 @@ void VoxelInstanceGenerator::generate_transforms(
 
 		PoolVector3Array::Read vertices_r = vertices.read();
 		PoolVector3Array::Read normals_r = normals.read();
+		PoolVector2Array::Read uvs_r = uvs.read();
 
 		// Generate base positions
 		switch (_emit_mode) {
@@ -111,9 +123,10 @@ void VoxelInstanceGenerator::generate_transforms(
 					// rather than iterating them all and rejecting
 					if (pcg0.rand() >= density_u32) {
 						continue;
-					}
+		}
 					vertex_cache.push_back(vertices_r[i]);
 					normal_cache.push_back(normals_r[i]);
+					texture_weights_cache.push_back(uv_to_tw(uvs_r[i]));
 				}
 			} break;
 
@@ -128,6 +141,7 @@ void VoxelInstanceGenerator::generate_transforms(
 
 				vertex_cache.resize(instance_count);
 				normal_cache.resize(instance_count);
+				texture_weights_cache.resize(instance_count);
 
 				for (int instance_index = 0; instance_index < instance_count; ++instance_index) {
 					// Pick a random triangle
@@ -157,6 +171,7 @@ void VoxelInstanceGenerator::generate_transforms(
 
 					vertex_cache[instance_index] = p;
 					normal_cache[instance_index] = n;
+					texture_weights_cache[instance_index] = uv_to_tw(uvs_r[ia]);
 				}
 
 			} break;
@@ -211,6 +226,7 @@ void VoxelInstanceGenerator::generate_transforms(
 
 						vertex_cache.push_back(p);
 						normal_cache.push_back(n);
+						texture_weights_cache.push_back(uv_to_tw(uvs_r[ia]));
 					}
 
 					accumulator -= count_in_triangle * inv_density;
@@ -235,6 +251,7 @@ void VoxelInstanceGenerator::generate_transforms(
 			if ((octant_mask & (1 << octant_index)) == 0) {
 				unordered_remove(vertex_cache, i);
 				unordered_remove(normal_cache, i);
+				unordered_remove(texture_weights_cache, i);
 				--i;
 			}
 		}
@@ -256,6 +273,7 @@ void VoxelInstanceGenerator::generate_transforms(
 					if (n < 0) {
 						unordered_remove(vertex_cache, i);
 						unordered_remove(normal_cache, i);
+						unordered_remove(texture_weights_cache, i);
 						--i;
 					} else {
 						noise_cache.push_back(n);
@@ -270,6 +288,7 @@ void VoxelInstanceGenerator::generate_transforms(
 					if (n < 0) {
 						unordered_remove(vertex_cache, i);
 						unordered_remove(normal_cache, i);
+						unordered_remove(texture_weights_cache, i);
 						--i;
 					} else {
 						noise_cache.push_back(n);
@@ -292,6 +311,7 @@ void VoxelInstanceGenerator::generate_transforms(
 	const bool slope_filter = normal_min_y != -1.f || normal_max_y != 1.f;
 	const bool height_filter = _min_height != std::numeric_limits<float>::min() ||
 							   _max_height != std::numeric_limits<float>::max();
+	const bool ground_filter = _ground_mask != 0xf;
 	const float min_height = _min_height;
 	const float max_height = _max_height;
 
@@ -366,6 +386,18 @@ void VoxelInstanceGenerator::generate_transforms(
 			}
 
 			if (y < min_height || y > max_height) {
+				continue;
+			}
+		}
+
+		if (ground_filter) {
+			uint16_t texture_weights = texture_weights_cache[vertex_index];
+			const bool w0 = (texture_weights & 0xf);
+			const bool w1 = (texture_weights & 0xf0);
+			const bool w2 = (texture_weights & 0xf00);
+			const bool w3 = (texture_weights & 0xf000);
+			auto actual_ground_mask = w0 | (w1 << 1) | (w2 << 2) | (w3 << 3);
+			if ((actual_ground_mask & _ground_mask) != actual_ground_mask) {
 				continue;
 			}
 		}
@@ -597,6 +629,19 @@ float VoxelInstanceGenerator::get_max_height() const {
 	return _max_height;
 }
 
+void VoxelInstanceGenerator::set_ground_mask(int gm) {
+	gm &= 0xf;
+	if (_ground_mask == gm) {
+		return;
+	}
+	_ground_mask = gm;
+	emit_changed();
+}
+
+int VoxelInstanceGenerator::get_ground_mask() const {
+	return _ground_mask;
+}
+
 void VoxelInstanceGenerator::set_random_vertical_flip(bool flip_enabled) {
 	if (flip_enabled == _random_vertical_flip) {
 		return;
@@ -704,6 +749,9 @@ void VoxelInstanceGenerator::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_max_height", "height"), &VoxelInstanceGenerator::set_max_height);
 	ClassDB::bind_method(D_METHOD("get_max_height"), &VoxelInstanceGenerator::get_max_height);
 
+	ClassDB::bind_method(D_METHOD("set_ground_mask", "ground_mask"), &VoxelInstanceGenerator::set_ground_mask);
+	ClassDB::bind_method(D_METHOD("get_ground_mask"), &VoxelInstanceGenerator::get_ground_mask);
+
 	ClassDB::bind_method(D_METHOD("set_random_vertical_flip", "enabled"),
 			&VoxelInstanceGenerator::set_random_vertical_flip);
 	ClassDB::bind_method(D_METHOD("get_random_vertical_flip"), &VoxelInstanceGenerator::get_random_vertical_flip);
@@ -734,6 +782,7 @@ void VoxelInstanceGenerator::_bind_methods() {
 			"set_max_slope_degrees", "get_max_slope_degrees");
 	ADD_PROPERTY(PropertyInfo(Variant::REAL, "min_height"), "set_min_height", "get_min_height");
 	ADD_PROPERTY(PropertyInfo(Variant::REAL, "max_height"), "set_max_height", "get_max_height");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "ground_mask", PROPERTY_HINT_LAYERS_3D_RENDER), "set_ground_mask", "get_ground_mask");
 
 	ADD_GROUP("Scale", "");
 

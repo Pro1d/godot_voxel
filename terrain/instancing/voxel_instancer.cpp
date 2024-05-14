@@ -652,11 +652,18 @@ void VoxelInstancer::on_data_block_loaded(Vector3i grid_position, unsigned int l
 	lod.loaded_instances_data.insert(std::make_pair(grid_position, std::move(instances)));
 }
 
-void VoxelInstancer::on_mesh_block_enter(Vector3i render_grid_position, unsigned int lod_index, Array surface_arrays) {
+void VoxelInstancer::on_mesh_block_enter(Vector3i render_grid_position, unsigned int lod_index, Array const& surface_arrays) {
 	if (lod_index >= _lods.size()) {
 		return;
 	}
 	create_render_blocks(render_grid_position, lod_index, surface_arrays);
+}
+
+void VoxelInstancer::on_mesh_block_updated(Vector3i render_grid_position, unsigned int lod_index, Array const& surface_arrays) {
+	if (lod_index >= _lods.size()) {
+		return;
+	}
+	update_render_blocks(render_grid_position, lod_index, surface_arrays);
 }
 
 void VoxelInstancer::on_mesh_block_exit(Vector3i render_grid_position, unsigned int lod_index) {
@@ -912,7 +919,7 @@ static const VoxelInstanceBlockData::LayerData *find_layer_data(const VoxelInsta
 	return nullptr;
 }
 
-void VoxelInstancer::create_render_blocks(Vector3i render_grid_position, int lod_index, Array surface_arrays) {
+void VoxelInstancer::create_render_blocks(Vector3i render_grid_position, int lod_index, Array const& surface_arrays) {
 	VOXEL_PROFILE_SCOPE();
 	ERR_FAIL_COND(_library.is_null());
 
@@ -990,10 +997,10 @@ void VoxelInstancer::create_render_blocks(Vector3i render_grid_position, int lod
 
 		// Generate the rest
 		if (gen_octant_mask != 0 && surface_arrays.size() != 0 && item->get_generator().is_valid()) {
-			PoolVector3Array vertices = surface_arrays[ArrayMesh::ARRAY_VERTEX];
+			PoolVector3Array const& vertices = get_pool_vector<Vector3>(surface_arrays[ArrayMesh::ARRAY_VERTEX]);
 
 			if (vertices.size() != 0) {
-				PoolVector3Array normals = surface_arrays[ArrayMesh::ARRAY_NORMAL];
+				PoolVector3Array const& normals = get_pool_vector<Vector3>(surface_arrays[ArrayMesh::ARRAY_NORMAL]);
 				ERR_FAIL_COND(normals.size() == 0);
 
 				VOXEL_PROFILE_SCOPE();

@@ -169,7 +169,7 @@ protected:
 		SimpleTextureBlendSphereOp(Vector3 p_center, float p_radius, TextureParams p_tp) {
 			center = p_center;
 			radius_squared = (p_radius * p_radius);
-			sharpness_radius_ratio = tp.sharpness / p_radius;
+			sharpness_radius_ratio = p_tp.sharpness / p_radius;
 			tp = p_tp;
 		}
 

@@ -59,7 +59,7 @@ public:
 			Vector3i grid_position,
 			int lod_index,
 			int layer_id,
-			Array surface_arrays,
+			Array const& surface_arrays,
 			const Transform &block_local_transform,
 			UpMode up_mode,
 			uint8_t octant_mask,
@@ -100,6 +100,9 @@ public:
 	void set_max_height(float h);
 	float get_max_height() const;
 
+	void set_ground_mask(int gm);
+	int get_ground_mask() const;
+
 	void set_random_vertical_flip(bool flip);
 	bool get_random_vertical_flip() const;
 
@@ -133,6 +136,7 @@ private:
 	float _max_surface_normal_y = 1.f;
 	float _min_height = std::numeric_limits<float>::min();
 	float _max_height = std::numeric_limits<float>::max();
+	int _ground_mask = 0xf;
 	bool _random_vertical_flip = false;
 	bool _random_rotation = true;
 	EmitMode _emit_mode = EMIT_FROM_VERTICES;
